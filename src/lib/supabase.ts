@@ -1,7 +1,20 @@
 import { neon } from '@neondatabase/serverless';
 
 const databaseUrl = process.env.DATABASE_URL || '';
-const sql = neon(databaseUrl);
+let sql: any;
+
+function getSql() {
+  if (!sql) {
+    // Return a dummy client during build time if DATABASE_URL is missing to avoid crashing Next.js static build process
+    if (!databaseUrl) {
+      return {
+        query: async () => []
+      };
+    }
+    sql = neon(databaseUrl);
+  }
+  return sql;
+}
 
 class NeonQueryBuilder {
   private tableName: string;
@@ -76,7 +89,7 @@ class NeonQueryBuilder {
       if (!this.isCountOnly && this.limitCount !== null) {
         query += ` LIMIT ${this.limitCount}`;
       }
-      const data = await sql.query(query, params);
+      const data = await getSql().query(query, params);
       if (this.isCountOnly) {
         const countVal = parseInt((data?.[0] as any)?.count || '0', 10);
         return { data: [], count: countVal, error: null };
@@ -94,7 +107,7 @@ class NeonQueryBuilder {
       const valPlaceholders = keys.map((_, idx) => `$${idx + 1}`).join(', ');
       const params = keys.map(k => values[k]);
       const query = `INSERT INTO ${this.tableName} (${keys.join(', ')}) VALUES (${valPlaceholders}) RETURNING *`;
-      const data = await sql.query(query, params);
+      const data = await getSql().query(query, params);
       return { data, error: null };
     } catch (e: any) {
       console.error('Neon Insert Error:', e);
@@ -129,7 +142,7 @@ class NeonQueryBuilder {
         DO UPDATE SET ${updateSet}
         RETURNING *
       `;
-      const data = await sql.query(query, params);
+      const data = await getSql().query(query, params);
       return { data, error: null };
     } catch (e: any) {
       console.error('Neon Upsert Error:', e);
@@ -147,7 +160,7 @@ class NeonQueryBuilder {
           params.push(val);
           const setClause = keys.map((k, idx) => `${k} = $${idx + 1}`).join(', ');
           const query = `UPDATE ${builder.tableName} SET ${setClause} WHERE ${col} = $${params.length} RETURNING *`;
-          const data = await sql.query(query, params);
+          const data = await getSql().query(query, params);
           return { data, error: null };
         } catch (e: any) {
           console.error('Neon Update Error:', e);
@@ -165,7 +178,7 @@ class NeonQueryBuilder {
           eq: async (col2: string, val2: any) => {
             try {
               const query = `DELETE FROM ${builder.tableName} WHERE ${col1} = $1 AND ${col2} = $2 RETURNING *`;
-              const data = await sql.query(query, [val1, val2]);
+              const data = await getSql().query(query, [val1, val2]);
               return { data, error: null };
             } catch (e: any) {
               console.error('Neon Delete Error:', e);
@@ -197,7 +210,7 @@ export const supabase = {
           )
         `;
         const vectorStr = `[${args.query_embedding.join(',')}]`;
-        const data = await sql.query(query, [
+        const data = await getSql().query(query, [
           vectorStr,
           args.match_threshold,
           args.match_count,
